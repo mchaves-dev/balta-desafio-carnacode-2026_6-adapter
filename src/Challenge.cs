@@ -9,7 +9,7 @@ namespace DesignPatternChallenge
 {
     // Contexto: Sistema moderno de e-commerce com interface padronizada
     // Precisa integrar com sistema legado que tem interface completamente diferente
-    
+
     // Interface moderna que a aplicação usa
     public interface IPaymentProcessor
     {
@@ -58,7 +58,7 @@ namespace DesignPatternChallenge
             Console.WriteLine($"[Sistema Legado] Autorizando transação...");
             Console.WriteLine($"Cartão: {cardNum}");
             Console.WriteLine($"Valor: {amountInCents / 100:C}");
-            
+
             // Simulação de processamento
             var response = new LegacyTransactionResponse
             {
@@ -158,6 +158,55 @@ namespace DesignPatternChallenge
         }
     }
 
+    public sealed class PaymentProcessorAdapter : IPaymentProcessor
+    {
+        private readonly LegacyPaymentSystem _legacyPaymentSystem;
+
+        public PaymentProcessorAdapter()
+        {
+            _legacyPaymentSystem = new LegacyPaymentSystem();
+        }
+
+
+        public PaymentResult ProcessPayment(PaymentRequest request)
+        {
+            var response = _legacyPaymentSystem.AuthorizeTransaction(request.CreditCardNumber,
+                                                      Convert.ToInt32(request.Cvv),
+                                                       request.ExpirationDate.Month,
+                                                       request.ExpirationDate.Year,
+                                                       (double)(request.Amount * 100),
+                                                       request.CustomerEmail);
+
+            return new PaymentResult()
+            {
+                Message = response.ResponseMessage,
+                Success = response.ResponseCode == "00",
+                TransactionId = response.TransactionRef
+            };
+        }
+
+
+        public bool RefundPayment(string transactionId, decimal amount)
+        {
+            return _legacyPaymentSystem.ReverseTransaction(transactionId, (double)(request.Amount * 100));
+        }
+
+
+        public PaymentStatus CheckStatus(string transactionId)
+        {
+            var status = _legacyPaymentSystem.QueryTransactionStatus(transactionId);
+
+            return status switch
+            {
+                "APPROVED" => PaymentStatus.Approved,
+                "DECLINED" => PaymentStatus.Declined,
+                "PENDING" => PaymentStatus.Pending,
+                "REFUNDED" => PaymentStatus.Refunded,
+                _ => PaymentStatus.Pending
+            };
+        }
+    }
+
     class Program
     {
         static void Main(string[] args)
@@ -171,46 +220,9 @@ namespace DesignPatternChallenge
 
             Console.WriteLine("\n" + new string('-', 60) + "\n");
 
-            // Problema: Como usar o sistema legado sem modificar CheckoutService?
-            var legacySystem = new LegacyPaymentSystem();
-            
-            // ISSO NÃO FUNCIONA - Interfaces incompatíveis
-            // var checkoutWithLegacy = new CheckoutService(legacySystem); // ERRO DE COMPILAÇÃO!
-
-            Console.WriteLine("⚠️ PROBLEMA: Sistema legado não implementa IPaymentProcessor");
-            Console.WriteLine("   - Assinaturas de métodos incompatíveis");
-            Console.WriteLine("   - Estruturas de dados diferentes");
-            Console.WriteLine("   - Não podemos modificar o código legado");
-            Console.WriteLine("   - Não queremos modificar CheckoutService");
-
-            // Tentativa ingênua: criar wrapper manualmente em cada lugar
-            Console.WriteLine("\n--- Tentativa de uso direto (código duplicado) ---\n");
-            
-            var cardNumber = "4111111111111111";
-            var cvv = 123;
-            var expDate = new DateTime(2026, 12, 31);
-            var amount = 200.00m;
-
-            // Conversões manuais repetidas em cada lugar do código
-            var legacyResponse = legacySystem.AuthorizeTransaction(
-                cardNumber,
-                cvv,
-                expDate.Month,
-                expDate.Year,
-                (double)(amount * 100),
-                "cliente2@email.com"
-            );
-
-            if (legacyResponse.ResponseCode == "00")
-            {
-                Console.WriteLine($"✅ Transação aprovada! Ref: {legacyResponse.TransactionRef}");
-            }
-
-            // Perguntas para reflexão:
-            // - Como fazer o sistema legado trabalhar com a interface moderna?
-            // - Como evitar modificar CheckoutService e outras classes que usam IPaymentProcessor?
-            // - Como encapsular as conversões entre as interfaces incompatíveis?
-            // - Como permitir que ambos os sistemas coexistam de forma transparente?
+            var legacySystem = new PaymentProcessorAdapter();
+            var checkoutWithLegacy = new CheckoutService(legacySystem);
+            checkoutWithLegacy.CompleteOrder("cliente@email.com", 150.00m, "4111111111111111");
         }
     }
 }
